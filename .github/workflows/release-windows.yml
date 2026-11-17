@@ -34,14 +34,21 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: 'recursive'
+          fetch-depth: 0
 
       - name: Resolve Release Tag
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag_name }}
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ inputs.tag_name }}" ]]; then
-            tag="${{ inputs.tag_name }}"
-          else
+          if [[ "$EVENT_NAME" == "workflow_dispatch" && -n "$INPUT_TAG" ]]; then
+            tag="$INPUT_TAG"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
             tag="${GITHUB_REF#refs/tags/}"
+          else
+            echo "::error::Cannot resolve a valid release tag from GITHUB_REF ($GITHUB_REF). Please provide tag_name for workflow_dispatch." >&2
+            exit 1
           fi
           echo "RELEASE_TAG=$tag" >> $GITHUB_ENV
           echo "ZIP_FILE=Aseprite-${tag}-windows-x64.zip" >> $GITHUB_ENV
@@ -61,7 +68,7 @@ jobs:
           this_dir=$(cygpath "${{ github.workspace }}")
           skia_url=$(source $this_dir/laf/misc/skia-url.sh | xargs)
           skia_file=$(basename $skia_url)
-          curl --ssl-revoke-best-effort -L -o "$skia_file" "$skia_url"
+          curl --ssl-revoke-best-effort -fL -o "$skia_file" "$skia_url"
           unzip "$skia_file" -d skia
 
       - name: CMake Configuration
@@ -105,18 +112,20 @@ jobs:
 
           Write-Host "Generating $shaFile..."
           $hash = (Get-FileHash -Path "$zipFile" -Algorithm SHA256).Hash.ToLower()
-          "$hash  $zipFile" | Out-File -FilePath "$shaFile" -Encoding utf8
+          "$hash  $zipFile" | Out-File -FilePath "$shaFile" -Encoding ascii
 
       - name: Publish GitHub Release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IS_DRAFT: ${{ inputs.is_draft }}
+          IS_PRERELEASE: ${{ inputs.is_prerelease }}
         run: |
           FLAGS=""
-          if [[ "${{ inputs.is_draft }}" == "true" ]]; then
+          if [[ "$IS_DRAFT" == "true" ]]; then
             FLAGS="$FLAGS --draft"
           fi
-          if [[ "${{ inputs.is_prerelease }}" == "true" ]]; then
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
             FLAGS="$FLAGS --prerelease"
           fi
 
