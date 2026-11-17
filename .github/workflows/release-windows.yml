@@ -1,0 +1,132 @@
+name: release-windows
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag or Version name for the release (e.g. v1.3.18.6)'
+        required: false
+        type: string
+        default: ''
+      is_draft:
+        description: 'Publish as draft release'
+        required: false
+        type: boolean
+        default: false
+      is_prerelease:
+        description: 'Publish as pre-release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - name: Resolve Release Tag
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ inputs.tag_name }}" ]]; then
+            tag="${{ inputs.tag_name }}"
+          else
+            tag="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "RELEASE_TAG=$tag" >> $GITHUB_ENV
+          echo "ZIP_FILE=Aseprite-${tag}-windows-x64.zip" >> $GITHUB_ENV
+          echo "SHA_FILE=Aseprite-${tag}-windows-x64.zip.sha256" >> $GITHUB_ENV
+
+      - name: Install Ninja
+        uses: aseprite/get-ninja@main
+
+      - name: Setup MSVC
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+
+      - name: Install Skia
+        shell: bash
+        run: |
+          this_dir=$(cygpath "${{ github.workspace }}")
+          skia_url=$(source $this_dir/laf/misc/skia-url.sh | xargs)
+          skia_file=$(basename $skia_url)
+          curl --ssl-revoke-best-effort -L -o "$skia_file" "$skia_url"
+          unzip "$skia_file" -d skia
+
+      - name: CMake Configuration
+        shell: bash
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DENABLE_TESTS=OFF \
+            -DENABLE_SCRIPTING=on \
+            -DENABLE_CCACHE=off \
+            -DLAF_BACKEND=skia \
+            -DSKIA_DIR=$(realpath skia) \
+            -DSKIA_LIBRARY_DIR=$(realpath skia/out/Release-x64)
+
+      - name: Build Aseprite
+        shell: bash
+        run: |
+          ninja -C build aseprite
+
+      - name: Package Distribution & Generate SHA256
+        shell: powershell
+        run: |
+          $tag = $env:RELEASE_TAG
+          $distDir = "Aseprite-$tag-windows-x64"
+          $zipFile = $env:ZIP_FILE
+          $shaFile = $env:SHA_FILE
+
+          Write-Host "Creating package layout in dist/$distDir..."
+          New-Item -ItemType Directory -Path "dist/$distDir" -Force | Out-Null
+          Copy-Item -Path "build/bin/aseprite.exe" -Destination "dist/$distDir/"
+          Copy-Item -Path "build/bin/data" -Destination "dist/$distDir/" -Recurse
+          if (Test-Path "EULA.txt") { Copy-Item -Path "EULA.txt" -Destination "dist/$distDir/" }
+          if (Test-Path "README.md") { Copy-Item -Path "README.md" -Destination "dist/$distDir/" }
+          if (Test-Path "docs/LICENSES.md") {
+            New-Item -ItemType Directory -Path "dist/$distDir/docs" -Force | Out-Null
+            Copy-Item -Path "docs/LICENSES.md" -Destination "dist/$distDir/docs/"
+          }
+
+          Write-Host "Compressing to $zipFile..."
+          Compress-Archive -Path "dist/$distDir/*" -DestinationPath "$zipFile" -Force
+
+          Write-Host "Generating $shaFile..."
+          $hash = (Get-FileHash -Path "$zipFile" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $zipFile" | Out-File -FilePath "$shaFile" -Encoding utf8
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FLAGS=""
+          if [[ "${{ inputs.is_draft }}" == "true" ]]; then
+            FLAGS="$FLAGS --draft"
+          fi
+          if [[ "${{ inputs.is_prerelease }}" == "true" ]]; then
+            FLAGS="$FLAGS --prerelease"
+          fi
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists. Uploading assets..."
+            gh release upload "$RELEASE_TAG" "$ZIP_FILE" "$SHA_FILE" --clobber
+          else
+            echo "Creating release $RELEASE_TAG..."
+            gh release create "$RELEASE_TAG" "$ZIP_FILE" "$SHA_FILE" \
+              --title "Aseprite $RELEASE_TAG" \
+              --generate-notes \
+              $FLAGS
+          fi
