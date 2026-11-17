@@ -81,12 +81,26 @@ jobs:
             -DENABLE_CCACHE=off \
             -DLAF_BACKEND=skia \
             -DSKIA_DIR=$(realpath skia) \
-            -DSKIA_LIBRARY_DIR=$(realpath skia/out/Release-x64)
+            -DSKIA_LIBRARY_DIR=$(realpath skia/out/Release-x64) \
+            -DENABLE_OPENSSL=OFF \
+            -DCMAKE_USE_OPENSSL=OFF
 
       - name: Build Aseprite
         shell: bash
         run: |
           ninja -C build aseprite
+
+      - name: Verify Binary Dependencies
+        shell: powershell
+        run: |
+          Write-Host "Checking binary dependencies of aseprite.exe..."
+          $deps = dumpbin /dependents build/bin/aseprite.exe | Out-String
+          Write-Host $deps
+          if ($deps -match "libcrypto" -or $deps -match "libssl") {
+            Write-Error "ERROR: aseprite.exe links against external OpenSSL DLL (libcrypto/libssl)!"
+            exit 1
+          }
+          Write-Host "Binary dependencies verified: no external OpenSSL DLL dependency found."
 
       - name: Package Distribution & Generate SHA256
         shell: powershell

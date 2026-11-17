@@ -113,6 +113,7 @@ endif()
 if(REQUIRE_CURL AND NOT USE_SHARED_CURL)
   # Disable OpenSSL (use native libraries only)
   set(CMAKE_USE_OPENSSL OFF CACHE BOOL "Use OpenSSL code. Experimental")
+  set(ENABLE_OPENSSL OFF CACHE BOOL "Disable OpenSSL in all third-party libraries")
   set(CMAKE_USE_LIBSSH2 OFF CACHE BOOL "Use libSSH2")
 
   if(WIN32)

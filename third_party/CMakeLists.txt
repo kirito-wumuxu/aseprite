@@ -139,6 +139,7 @@ set(ENABLE_LZO OFF CACHE BOOL "Enable the use of the system LZO library if found
 set(ENABLE_LZMA OFF CACHE BOOL "Enable the use of the system LZMA library if found")
 set(ENABLE_ZSTD OFF CACHE BOOL "Enable the use of the system zstd library if found")
 set(ENABLE_CNG OFF CACHE BOOL "Enable the use of CNG(Crypto Next Generation)")
+set(ENABLE_OPENSSL OFF CACHE BOOL "Enable the use of OpenSSL")
 set(ENABLE_BZip2 OFF CACHE BOOL "Enable the use of the system BZip2 library if found")
 set(ENABLE_EXPAT OFF CACHE BOOL "Enable the use of the system EXPAT library if found")
 set(ENABLE_LIBXML2 OFF CACHE BOOL "Enable the use of the system libxml2 library if found")
